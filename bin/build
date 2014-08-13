@@ -1,0 +1,22 @@
+#! /bin/bash
+pushd `dirname $0` > /dev/null
+SCRIPTPATH=`pwd -P`
+popd > /dev/null
+
+if [[ ! -f $SCRIPTPATH/oauth_client.env ]]; then
+  echo "Please make an oauth_client.env from the sample file"
+  echo .
+  exit 1
+fi
+
+source $SCRIPTPATH/oauth_client.env
+
+NAME=mixcloud
+VERSION=0.2
+MINVERSION=`date -u +%Y%m%d%.H%M%S`
+LDFLAGS="-s -w -X main.MINVERSION ${MINVERSION} -X main.VERSION ${VERSION} -X main.OAUTH_CLIENT_ID ${OAUTH_CLIENT_ID} -X main.OAUTH_CLIENT_SECRET ${OAUTH_CLIENT_SECRET}"
+
+GOOS=windows GOARCH=386 go build -ldflags "${LDFLAGS}" -o pkg/${NAME}-${VERSION}.exe ${NAME}.go
+GOOS=linux GOARCH=386 go build -ldflags "${LDFLAGS}" -o pkg/${NAME}-${VERSION}.linux ${NAME}.go
+GOOS=linux GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o pkg/${NAME}-${VERSION}.linux64 ${NAME}.go
+GOOS=darwin GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o pkg/${NAME}-${VERSION}.osx ${NAME}.go
