@@ -15,8 +15,9 @@ NAME=mixcloud
 VERSION=0.3a
 MINVERSION=`date -u +%Y%m%d%.H%M%S`
 LDFLAGS="-s -w -X main.MINVERSION ${MINVERSION} -X main.VERSION ${VERSION} -X main.OAUTH_CLIENT_ID ${OAUTH_CLIENT_ID} -X main.OAUTH_CLIENT_SECRET ${OAUTH_CLIENT_SECRET}"
+OUTFILE=pkg/${VERSION}/${NAME}
 
-GOOS=windows GOARCH=386 go build -ldflags "${LDFLAGS}" -o pkg/${NAME}-${VERSION}.exe ${NAME}.go
-GOOS=linux GOARCH=386 go build -ldflags "${LDFLAGS}" -o pkg/${NAME}-${VERSION}.linux ${NAME}.go
-GOOS=linux GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o pkg/${NAME}-${VERSION}.linux64 ${NAME}.go
-GOOS=darwin GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o pkg/${NAME}-${VERSION}.osx ${NAME}.go
+GOOS=windows GOARCH=386 go build -ldflags "${LDFLAGS}" -o ${OUTFILE}.exe ${NAME}.go
+GOOS=linux GOARCH=386 go build -ldflags "${LDFLAGS}" -o ${OUTFILE}.linux ${NAME}.go
+GOOS=linux GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${OUTFILE}.linux64 ${NAME}.go
+GOOS=darwin GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${OUTFILE}.osx ${NAME}.go
