@@ -12,6 +12,15 @@ It can:
  * Add cover art
  * Parse Virtual DJ 7 Tracklist.txt sections to approximate track changes
 
+Binaries
+---------
+
+Compiled [binaries are available on dropbox](https://www.dropbox.com/sh/492dk6xvkywa1m6/AABn-CxxVjn4_B5bt6r6WqY8a/latest) for:
+  * [Windows 64bit](https://www.dropbox.com/sh/492dk6xvkywa1m6/AADyNRcqIs3XZhVrnpp-xBUva/latest/mixcloud.exe)
+  * [Linux 32bit](https://www.dropbox.com/sh/492dk6xvkywa1m6/AAAWQUhp0VtISWvifR69XmBEa/latest/mixcloud.linux)
+  * [Linux 64bit](https://www.dropbox.com/sh/492dk6xvkywa1m6/AAAWQUhp0VtISWvifR69XmBEa/latest/mixcloud.linux64)
+  * [OSX 64bit](https://www.dropbox.com/sh/492dk6xvkywa1m6/AAAWQUhp0VtISWvifR69XmBEa/latest/mixcloud.osx)
+
 Source Requirements
 ------------
 
