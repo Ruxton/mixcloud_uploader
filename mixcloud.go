@@ -360,9 +360,9 @@ func HttpUploadRequest(file string, cover string, name string, desc string, tag_
     var total_duration int = 0;
 
     for i,track := range tracklist {
-      artist_field_name := fmt.Sprintf("section-%d-artist",i)
-      song_field_name := fmt.Sprintf("section-%d-song",i)
-      duration_field_name := fmt.Sprintf("section-%d-start_time",i)
+      artist_field_name := fmt.Sprintf("sections-%d-artist",i)
+      song_field_name := fmt.Sprintf("sections-%d-song",i)
+      duration_field_name := fmt.Sprintf("sections-%d-start_time",i)
 
       total_duration += track.Duration
 
