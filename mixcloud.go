@@ -16,6 +16,7 @@ import (
   "./term"
   "fmt"
   "time"
+	_ "crypto/sha512"
 )
 
 var VERSION string
