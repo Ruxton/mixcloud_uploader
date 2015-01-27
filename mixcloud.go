@@ -30,6 +30,8 @@ var ACCESS_TOKEN_URL = "https://www.mixcloud.com/oauth/access_token?client_id=" 
 var CONFIG_FILE = "config.json"
 var CONFIG_FILE_PATH = ""
 
+var TRACKLIST_OUTPUT_FORMAT = "%d. %s-%s\n"
+
 var configuration = Configuration{}
 
 var aboutFlag = flag.Bool("about", false, "About the application")
@@ -257,7 +259,18 @@ func main() {
 		os.Exit(2)
 	}
 
-	handleJSONResponse(jsonResponse)
+	if handleJSONResponse(jsonResponse) {
+		printTracklist(tracklist)
+	} else {
+		os.Exit(2)
+	}
+}
+
+func printTracklist(tracklist []Track) {
+	OutputMessage("Tracklist\n")
+	for i, track := range tracklist {
+		OutputMessage(fmt.Sprintf(TRACKLIST_OUTPUT_FORMAT,i+1,track.Artist,track.Song))
+	}
 }
 
 func parseVirtualDJTrackList(tracklist *string) []Track {
@@ -308,14 +321,15 @@ func parseVirtualDJTrackList(tracklist *string) []Track {
 	return list
 }
 
-func handleJSONResponse(jsonResponse map[string]interface{}) {
+func handleJSONResponse(jsonResponse map[string]interface{}) bool {
 	if error := jsonResponse["error"]; error != nil {
 		OutputError(error.(map[string]interface{})["message"].(string))
-		os.Exit(2)
+		return false
 	} else {
 		OutputMessage(term.Green + "Sucessfully uploaded file" + term.Reset + "\n")
 		path := jsonResponse["result"].(map[string]interface{})["key"].(string)
 		OutputMessage(term.Green + "https://mixcloud.com" + path + "edit" + term.Reset + "\n")
+		return true
 	}
 }
 
