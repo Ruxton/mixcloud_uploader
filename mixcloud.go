@@ -16,9 +16,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	_ "crypto/sha512"
 )
-
-import _ "crypto/sha512"
 
 var VERSION string
 var MINVERSION string
