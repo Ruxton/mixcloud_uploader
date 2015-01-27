@@ -18,6 +18,8 @@ import (
 	"time"
 )
 
+import _ "crypto/sha512"
+
 var VERSION string
 var MINVERSION string
 var OAUTH_CLIENT_ID string
@@ -200,7 +202,7 @@ func main() {
 	}
 
 	if *trackListFlag != "" {
-		tracklist = parseTrackList(trackListFlag)
+		tracklist = parseVirtualDJTrackList(trackListFlag)
 	}
 
 	if *fileFlag == "" {
@@ -259,7 +261,7 @@ func main() {
 	handleJSONResponse(jsonResponse)
 }
 
-func parseTrackList(tracklist *string) []Track {
+func parseVirtualDJTrackList(tracklist *string) []Track {
 	var list []Track
 
 	fin, err := os.Open(*tracklist)

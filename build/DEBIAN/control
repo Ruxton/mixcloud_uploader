@@ -1,0 +1,9 @@
+Package: mixcloud_uploadr
+Version: ${VERSION}
+Architecture: all
+Maintainer: Greg Tangey <greg@digitalignition.net>
+Installed-Size: 2?
+Section: extras
+Priority: optional
+Homepage: https://github.com/ruxton/mixcloud_uploadr/
+Description: A command line uploader for mixcloud.com
