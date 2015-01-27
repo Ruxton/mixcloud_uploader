@@ -257,7 +257,18 @@ func main() {
 		os.Exit(2)
 	}
 
-	handleJSONResponse(jsonResponse)
+	if handleJSONResponse(jsonResponse) {
+		printTracklist(tracklist)
+	} else {
+		os.Exit(2)
+	}
+}
+
+func printTracklist(tracklist []Track) {
+	OutputMessage("Tracklist")
+	for i, track := range tracklist {
+		OutputMessage("%d. %s-%s",i,track.Artist,track.Song)
+	}
 }
 
 func parseVirtualDJTrackList(tracklist *string) []Track {
@@ -308,14 +319,15 @@ func parseVirtualDJTrackList(tracklist *string) []Track {
 	return list
 }
 
-func handleJSONResponse(jsonResponse map[string]interface{}) {
+func handleJSONResponse(jsonResponse map[string]interface{}) Boolean {
 	if error := jsonResponse["error"]; error != nil {
 		OutputError(error.(map[string]interface{})["message"].(string))
-		os.Exit(2)
+		return false
 	} else {
 		OutputMessage(term.Green + "Sucessfully uploaded file" + term.Reset + "\n")
 		path := jsonResponse["result"].(map[string]interface{})["key"].(string)
 		OutputMessage(term.Green + "https://mixcloud.com" + path + "edit" + term.Reset + "\n")
+		return true
 	}
 }
 
