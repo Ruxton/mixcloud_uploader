@@ -4,6 +4,7 @@ import (
 	"./term"
 	"bufio"
 	"bytes"
+	_ "crypto/sha512"
 	"encoding/json"
 	"fmt"
 	"github.com/cheggaaa/pb"
@@ -16,7 +17,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-	_ "crypto/sha512"
 )
 
 var VERSION string
