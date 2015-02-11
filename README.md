@@ -15,11 +15,11 @@ It can:
 Binaries
 ---------
 
-Compiled [binaries are available on dropbox](https://www.dropbox.com/sh/c9370ys3tdb0n9r/AACTPGBTGwn1cQOzrBAOtCzAa) for:
-  * [Windows 64bit](https://www.dropbox.com/s/slgxd7loji41skj/mixcloud.exe)
-  * [Linux 32bit](https://www.dropbox.com/s/a0nbjdhwx0r0thd/mixcloud.linux)
-  * [Linux 64bit](https://www.dropbox.com/s/eaejgi83oh64t8q/mixcloud.linux64)
-  * [OSX 64bit](https://www.dropbox.com/s/ndf51gg9rkgrvih/mixcloud.osx)
+Compiled [binaries are available on dropbox](https://www.dropbox.com/sh/bqrajt2q74vn3jx/AABBFzI4327haGgjpHQrwKHHa) for:
+  * [Windows 64bit](https://www.dropbox.com/s/4hb25ooz2p3h38d/mixcloud.exe)
+  * [Linux 32bit](https://www.dropbox.com/s/p2ny4njqfm966z0/mixcloud.linux)
+  * [Linux 64bit](https://www.dropbox.com/s/g6p5fg7bnn9x5o2/mixcloud.linux64)
+  * [OSX 64bit](https://www.dropbox.com/s/27j48w0bete7xkt/mixcloud.osx)
 
 Source Requirements
 ------------
