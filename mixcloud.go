@@ -322,7 +322,11 @@ func parseVirtualDJTrackList(tracklist *string) []Track {
 	return list
 }
 
+<<<<<<< HEAD
 func handleJSONResponse(jsonResponse map[string]interface{}) bool {
+=======
+func handleJSONResponse(jsonResponse map[string]interface{}) Boolean {
+>>>>>>> 5ba6bdc92303728b3523ef36c473a2168ac7843a
 	if error := jsonResponse["error"]; error != nil {
 		OutputError(error.(map[string]interface{})["message"].(string))
 		return false
