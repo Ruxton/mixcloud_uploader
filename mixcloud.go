@@ -1,13 +1,15 @@
 package main
 
 import (
-	"./term"
 	"bufio"
 	"bytes"
 	_ "crypto/sha512"
 	"encoding/json"
 	"fmt"
 	"github.com/cheggaaa/pb"
+	"github.com/ruxton/mixcloud/confirm"
+	"github.com/ruxton/mixcloud/mixcloud"
+	"github.com/ruxton/mixcloud/term"
 	"io"
 	flag "launchpad.net/gnuflag"
 	"mime/multipart"
@@ -15,6 +17,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -27,11 +30,13 @@ var OAUTH_CLIENT_SECRET string
 var OAUTH_REDIRECT_URI = "http://www.rhythmandpoetry.net/mixcloud_code.php"
 var API_URL = "https://api.mixcloud.com/upload/?access_token="
 var ACCESS_TOKEN_URL = "https://www.mixcloud.com/oauth/access_token?client_id=" + OAUTH_CLIENT_ID + "&redirect_uri=" + OAUTH_REDIRECT_URI + "&client_secret=" + OAUTH_CLIENT_SECRET + "&code=%s"
+var API_ME_URL = "https://api.mixcloud.com/me?access_token="
 var CONFIG_FILE = "config.json"
 var CONFIG_FILE_PATH = ""
 
 var TRACKLIST_OUTPUT_FORMAT = "%d. %s-%s\n"
 
+var CURRENT_USER mixcloud.User = mixcloud.User{}
 var configuration = Configuration{}
 
 var aboutFlag = flag.Bool("about", false, "About the application")
@@ -53,7 +58,7 @@ type Track struct {
 	Artist   string
 	Song     string
 	Duration int
-	Cover		 string
+	Cover    string
 }
 
 func showWelcomeMessage() {
@@ -98,16 +103,51 @@ func createConfig() {
 	saveConfig()
 }
 
-func fetchAccessCode(code string) string {
-	url := fmt.Sprintf(ACCESS_TOKEN_URL, code)
+func build_http(url string, request string) *http.Request {
+	req, err := http.NewRequest(request, url, nil)
+	if err != nil {
+		OutputError(err.Error())
+	}
 
-	request, requestErr := http.NewRequest("GET", url, nil)
-	if requestErr != nil {
-		OutputError("Error request Access Code")
+	req.Header.Set("User-Agent", "Mixcloud CLI Uploader v"+VERSION)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+
+	return req
+}
+
+func fetchMe(access_token string) mixcloud.User {
+
+	OutputMessage(term.Green + "Fetching your user data.." + term.Reset + "\n")
+
+	url := API_ME_URL + access_token
+
+	request := build_http(url, "GET")
+
+	client := http.Client{}
+	resp, doError := client.Do(request)
+	if doError != nil {
+		OutputError("Error fetching your profile data: " + doError.Error())
 		os.Exit(2)
 	}
 
-	request.Header.Add("Content-Type", "application/json")
+	var user mixcloud.User
+
+	jsonError := json.NewDecoder(resp.Body).Decode(&user)
+	resp.Body.Close()
+	if jsonError != nil {
+		OutputError("Error decoding response from API - " + jsonError.Error())
+		os.Exit(2)
+	}
+
+	return user
+
+}
+
+func fetchAccessCode(code string) string {
+	url := fmt.Sprintf(ACCESS_TOKEN_URL, code)
+
+	request := build_http(url, "GET")
 
 	client := &http.Client{}
 	resp, doError := client.Do(request)
@@ -197,6 +237,8 @@ func main() {
 	setupApp()
 	loadConfig()
 
+	CURRENT_USER = fetchMe(configuration.ACCESS_TOKEN)
+
 	var tracklist []Track
 
 	if *configFlag == true {
@@ -212,33 +254,34 @@ func main() {
 		os.Exit(2)
 	}
 
-	OutputMessage("Enter a name for the cloudcast: ")
-	cast_name, err := STD_IN.ReadString('\n')
-	if err != nil {
-		OutputError("Incorrect name.")
-		os.Exit(2)
+	b := &bytes.Buffer{}
+
+	writer := multipart.NewWriter(b)
+
+	cast_name, cast_desc, tags_arr := GetBasicInput()
+
+	BuildBasicHTTPWriter(writer, cast_name, cast_desc, tags_arr, tracklist)
+	AddPremiumToHTTPWriter(writer)
+
+	// Add MP3
+	if fileFlag != "" {
+		loadFileToWriter(*fileFlag, "mp3", writer)
 	}
 
-	OutputMessage("Enter a description: ")
-	cast_desc, err := STD_IN.ReadString('\n')
-	if err != nil {
-		OutputError("Incorrect description.")
-		os.Exit(2)
+	// Add cover image
+	if cover != "" {
+		loadFileToWriter(*coverFlag, "picture", writer)
 	}
 
-	OutputMessage(fmt.Sprintf("Enter tags (comma separated) [%s]: ", configuration.DEFAULT_TAGS))
-	cast_tags, err := STD_IN.ReadString('\n')
-	if err != nil {
-		OutputError("Incorrect tag format.")
-		os.Exit(2)
+	writer.Close()
+
+	bufReader := bufio.NewReader(b)
+	for line, _, err := bufReader.ReadLine(); err != io.EOF; line, _, err = bufReader.ReadLine() {
+		OutputMessage(string(line) + "\n")
 	}
 
-	if cast_tags == "" || cast_tags == "\n" {
-		cast_tags = configuration.DEFAULT_TAGS
-	}
-	tags_arr := strings.Split(cast_tags, ",")
+	request, bar := HttpUploadRequest(b, writer)
 
-	request, bar := HttpUploadRequest(*fileFlag, *coverFlag, cast_name, cast_desc, tags_arr, tracklist)
 	bar.Empty = term.Red + "-" + term.Reset
 	bar.Current = term.Green + "=" + term.Reset
 	client := &http.Client{}
@@ -267,10 +310,40 @@ func main() {
 	}
 }
 
+func GetBasicInput() (string, string, []string) {
+	OutputMessage("Enter a name for the cloudcast: ")
+	cast_name, err := STD_IN.ReadString('\n')
+	if err != nil {
+		OutputError("Incorrect name.")
+		os.Exit(2)
+	}
+
+	OutputMessage("Enter a description: ")
+	cast_desc, err := STD_IN.ReadString('\n')
+	if err != nil {
+		OutputError("Incorrect description.")
+		os.Exit(2)
+	}
+
+	OutputMessage(fmt.Sprintf("Enter tags (comma separated) [%s]: ", configuration.DEFAULT_TAGS))
+	cast_tags, err := STD_IN.ReadString('\n')
+	if err != nil {
+		OutputError("Incorrect tag format.")
+		os.Exit(2)
+	}
+
+	if cast_tags == "" || cast_tags == "\n" {
+		cast_tags = configuration.DEFAULT_TAGS
+	}
+	tags_arr := strings.Split(cast_tags, ",")
+
+	return cast_name, cast_desc, tags_arr
+}
+
 func printTracklist(tracklist []Track) {
 	OutputMessage("Tracklist\n")
 	for i, track := range tracklist {
-		OutputMessage(fmt.Sprintf(TRACKLIST_OUTPUT_FORMAT,i+1,track.Artist,track.Song))
+		OutputMessage(fmt.Sprintf(TRACKLIST_OUTPUT_FORMAT, i+1, track.Artist, track.Song))
 	}
 }
 
@@ -293,7 +366,28 @@ func parseVirtualDJTrackList(tracklist *string) []Track {
 
 		thistrack := new(Track)
 
-		trackdata := strings.SplitN(string(track), " - ", 2)
+		var trackdata []string = strings.SplitN(string(track), " - ", 2)
+
+		OutputMessage("parsing " + string(track) + "\n")
+
+		if len(trackdata) != 2 {
+			OutputError("Error parsing track " + string(track) + " at " + tracktimestr)
+			OutputMessage("Please enter an artist for this track: ")
+			artist, err := STD_IN.ReadString('\n')
+			if err != nil {
+				OutputError("Incorrect artist entry.")
+				os.Exit(2)
+			}
+			OutputMessage("Please enter a name for this track: ")
+			track, err := STD_IN.ReadString('\n')
+			if err != nil {
+				OutputError("Incorrect track name entry.")
+				os.Exit(2)
+			}
+
+			trackdata = []string{artist, track}
+		}
+
 		thistrack.Artist = trackdata[0]
 		thistrack.Song = trackdata[1]
 
@@ -364,10 +458,7 @@ func loadFileToWriter(file string, key string, writer *multipart.Writer) {
 	}
 }
 
-func HttpUploadRequest(file string, cover string, name string, desc string, tag_list []string, tracklist []Track) (*http.Request, *pb.ProgressBar) {
-	b := &bytes.Buffer{}
-	writer := multipart.NewWriter(b)
-
+func BuildBasicHTTPWriter(writer *multipart.Writer, name string, desc string, tag_list []string, tracklist []Track) {
 	// Add information name/description
 	writer.WriteField("name", name)
 	writer.WriteField("description", desc)
@@ -394,18 +485,79 @@ func HttpUploadRequest(file string, cover string, name string, desc string, tag_
 			writer.WriteField(duration_field_name, fmt.Sprintf("%d", total_duration))
 		}
 	}
+}
 
-	// Add MP3
-	if file != "" {
-		loadFileToWriter(file, "mp3", writer)
+func ParseDateInPutToIS08601(dateIn string) string {
+	location, err := time.LoadLocation("Local")
+
+	fmt.Println(location.String())
+
+	dateTime, err := time.ParseInLocation("02/01/2006 15:04", strings.TrimSpace(dateIn), location)
+
+	if err != nil {
+		OutputError("Incorrect date format  - " + err.Error())
+		os.Exit(2)
 	}
 
-	// Add cover image
-	if cover != "" {
-		loadFileToWriter(cover, "picture", writer)
+	return dateTime.UTC().Format(time.RFC3339)
+}
+
+func AddPremiumToHTTPWriter(writer *multipart.Writer) {
+
+	// If you're not PRO, you can't do this, get out
+	if !CURRENT_USER.IsPro {
+		return
 	}
 
-	writer.Close()
+	OutputMessage("\n" + term.Green + "Setting pro user attributes..." + term.Reset + "\n")
+
+	publish_date, disable_comments, hide_stats, unlisted := GetPremiumInput()
+
+	if publish_date != "" {
+		writer.WriteField("publish_date", publish_date)
+	}
+	writer.WriteField("disable_comments", strconv.FormatBool(disable_comments))
+	writer.WriteField("hide_stats", strconv.FormatBool(hide_stats))
+	writer.WriteField("unlisted", strconv.FormatBool(unlisted))
+}
+
+func GetPremiumInput() (string, bool, bool, bool) {
+	disable_comments := false
+	hide_stats := false
+	unlisted := false
+	publish_date := ""
+
+	fmt.Printf("Disable comments? [y/n] ")
+	if confirm.AskForConfirmation() {
+		disable_comments = true
+	}
+
+	fmt.Printf("Hide statistics? [y/n] ")
+	if confirm.AskForConfirmation() {
+		hide_stats = true
+	}
+
+	fmt.Printf("Set to unlisted? [y/n] ")
+	if confirm.AskForConfirmation() {
+		unlisted = true
+	}
+
+	fmt.Printf("Set publish date? [y/n] ")
+	if confirm.AskForConfirmation() {
+		OutputMessage("Enter a publish date in your computers timezone [DD/MM/YYYY HH:MM]: ")
+		inPublishDate, err := STD_IN.ReadString('\n')
+		if err != nil {
+			OutputError("Incorrect publish date.")
+			os.Exit(2)
+		}
+
+		publish_date = ParseDateInPutToIS08601(inPublishDate)
+	}
+
+	return publish_date, disable_comments, hide_stats, unlisted
+}
+
+func HttpUploadRequest(b *bytes.Buffer, writer *multipart.Writer) (*http.Request, *pb.ProgressBar) {
 
 	url := API_URL + configuration.ACCESS_TOKEN
 
