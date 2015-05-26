@@ -17,7 +17,6 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -257,21 +256,21 @@ func main() {
 	AddPremiumToHTTPWriter(writer)
 
 	// Add MP3
-	if fileFlag != "" {
+	if *fileFlag != "" {
 		loadFileToWriter(*fileFlag, "mp3", writer)
 	}
 
 	// Add cover image
-	if cover != "" {
+	if *coverFlag != "" {
 		loadFileToWriter(*coverFlag, "picture", writer)
 	}
 
 	writer.Close()
 
-	bufReader := bufio.NewReader(b)
-	for line, _, err := bufReader.ReadLine(); err != io.EOF; line, _, err = bufReader.ReadLine() {
-		OutputMessage(string(line) + "\n")
-	}
+	// bufReader := bufio.NewReader(b)
+	// for line, _, err := bufReader.ReadLine(); err != io.EOF; line, _, err = bufReader.ReadLine() {
+	// 	OutputMessage(string(line) + "\n")
+	// }
 
 	request, bar := HttpUploadRequest(b, writer)
 
@@ -288,15 +287,18 @@ func main() {
 	}
 	bar.Finish()
 
-	var jsonResponse map[string]interface{}
-	error := json.NewDecoder(resp.Body).Decode(&jsonResponse)
+
+	var Response *mixcloud.Response = new(mixcloud.Response)
+
+	error := json.NewDecoder(resp.Body).Decode(&Response)
+
 	resp.Body.Close()
 	if error != nil {
 		OutputError("Error decoding response from API - " + error.Error())
 		os.Exit(2)
 	}
 
-	if handleJSONResponse(jsonResponse) {
+	if handleJSONResponse(*Response) {
 		printTracklist(tracklist)
 	} else {
 		os.Exit(2)
@@ -357,11 +359,9 @@ func parseVirtualDJTrackList(tracklist *string) []mixcloud.Track {
 		data := strings.Split(string(line), " : ")
 		tracktimestr, track := data[0], data[1]
 
-		thistrack := new(Track)
+		thistrack := new(mixcloud.Track)
 
 		var trackdata []string = strings.SplitN(string(track), " - ", 2)
-
-		OutputMessage("parsing " + string(track) + "\n")
 
 		if len(trackdata) != 2 {
 			OutputError("Error parsing track " + string(track) + " at " + tracktimestr)
@@ -409,15 +409,20 @@ func parseVirtualDJTrackList(tracklist *string) []mixcloud.Track {
 	return list
 }
 
-func handleJSONResponse(jsonResponse map[string]interface{}) bool {
-	if error := jsonResponse["error"]; error != nil {
-		OutputError(error.(map[string]interface{})["message"].(string))
+func handleJSONResponse(response mixcloud.Response) bool {
+	if response.Error != nil {
+		OutputError(response.Error.Message)
+		fmt.Printf("%v",response.Details)
 		return false
-	} else {
+	} else if response.Result.Success {
 		OutputMessage(term.Green + "Sucessfully uploaded file" + term.Reset + "\n")
-		path := jsonResponse["result"].(map[string]interface{})["key"].(string)
+		path := response.Result.Key
 		OutputMessage(term.Green + "https://mixcloud.com" + path + "edit" + term.Reset + "\n")
 		return true
+	} else {
+		OutputError("Error uploading, no success")
+		fmt.Printf("%v",response)
+		return false
 	}
 }
 
@@ -480,10 +485,8 @@ func BuildBasicHTTPWriter(writer *multipart.Writer, name string, desc string, ta
 	}
 }
 
-func ParseDateInPutToIS08601(dateIn string) string {
+func ParseDateInputToTime(dateIn string) time.Time {
 	location, err := time.LoadLocation("Local")
-
-	fmt.Println(location.String())
 
 	dateTime, err := time.ParseInLocation("02/01/2006 15:04", strings.TrimSpace(dateIn), location)
 
@@ -492,7 +495,7 @@ func ParseDateInPutToIS08601(dateIn string) string {
 		os.Exit(2)
 	}
 
-	return dateTime.UTC().Format(time.RFC3339)
+	return dateTime
 }
 
 func AddPremiumToHTTPWriter(writer *multipart.Writer) {
@@ -509,9 +512,15 @@ func AddPremiumToHTTPWriter(writer *multipart.Writer) {
 	if publish_date != "" {
 		writer.WriteField("publish_date", publish_date)
 	}
-	writer.WriteField("disable_comments", strconv.FormatBool(disable_comments))
-	writer.WriteField("hide_stats", strconv.FormatBool(hide_stats))
-	writer.WriteField("unlisted", strconv.FormatBool(unlisted))
+	if(disable_comments) {
+		writer.WriteField("disable_comments", "1")
+	}
+	if(hide_stats) {
+		writer.WriteField("hide_stats", "1")
+	}
+	if(unlisted) {
+		writer.WriteField("unlisted", "1")
+	}
 }
 
 func GetPremiumInput() (string, bool, bool, bool) {
@@ -537,17 +546,33 @@ func GetPremiumInput() (string, bool, bool, bool) {
 
 	fmt.Printf("Set publish date? [y/n] ")
 	if confirm.AskForConfirmation() {
-		OutputMessage("Enter a publish date in your computers timezone [DD/MM/YYYY HH:MM]: ")
-		inPublishDate, err := STD_IN.ReadString('\n')
-		if err != nil {
-			OutputError("Incorrect publish date.")
-			os.Exit(2)
-		}
+		publish_date = PublishDateInput()
 
-		publish_date = ParseDateInPutToIS08601(inPublishDate)
 	}
 
 	return publish_date, disable_comments, hide_stats, unlisted
+}
+
+func PublishDateInput() (string) {
+	current_time := time.Now().In(time.Local)
+	zonename, offset := current_time.Zone()
+
+	OutputMessage("Enter a publish date in "+zonename+" ("+fmt.Sprintf("%+d",offset/60/60)+" GMT) [DD/MM/YYYY HH:MM]: ")
+	inPublishDate, err := STD_IN.ReadString('\n')
+	if err != nil {
+		OutputError("Incorrect publish date.")
+		os.Exit(2)
+	}
+
+
+	publish_date := ParseDateInputToTime(inPublishDate)
+
+	if(!publish_date.After(current_time)) {
+		OutputError("Date "+publish_date.Format(time.RFC1123)+" is not in the future")
+		return PublishDateInput()
+	}
+
+	return publish_date.UTC().Format(time.RFC3339)
 }
 
 func HttpUploadRequest(b *bytes.Buffer, writer *multipart.Writer) (*http.Request, *pb.ProgressBar) {
