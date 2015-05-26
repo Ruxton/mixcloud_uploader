@@ -1,13 +1,15 @@
 package main
 
 import (
-	"./term"
 	"bufio"
 	"bytes"
 	_ "crypto/sha512"
 	"encoding/json"
 	"fmt"
 	"github.com/cheggaaa/pb"
+	"github.com/ruxton/mixcloud/confirm"
+	"github.com/ruxton/mixcloud/mixcloud"
+	"github.com/ruxton/mixcloud/term"
 	"io"
 	flag "launchpad.net/gnuflag"
 	"mime/multipart"
@@ -27,11 +29,13 @@ var OAUTH_CLIENT_SECRET string
 var OAUTH_REDIRECT_URI = "http://www.rhythmandpoetry.net/mixcloud_code.php"
 var API_URL = "https://api.mixcloud.com/upload/?access_token="
 var ACCESS_TOKEN_URL = "https://www.mixcloud.com/oauth/access_token?client_id=" + OAUTH_CLIENT_ID + "&redirect_uri=" + OAUTH_REDIRECT_URI + "&client_secret=" + OAUTH_CLIENT_SECRET + "&code=%s"
+var API_ME_URL = "https://api.mixcloud.com/me?access_token="
 var CONFIG_FILE = "config.json"
 var CONFIG_FILE_PATH = ""
 
 var TRACKLIST_OUTPUT_FORMAT = "%d. %s-%s\n"
 
+var CURRENT_USER mixcloud.User = mixcloud.User{}
 var configuration = Configuration{}
 
 var aboutFlag = flag.Bool("about", false, "About the application")
@@ -47,13 +51,6 @@ var STD_IN = bufio.NewReader(os.Stdin)
 type Configuration struct {
 	ACCESS_TOKEN string
 	DEFAULT_TAGS string
-}
-
-type Track struct {
-	Artist   string
-	Song     string
-	Duration int
-	Cover		 string
 }
 
 func showWelcomeMessage() {
@@ -98,16 +95,51 @@ func createConfig() {
 	saveConfig()
 }
 
-func fetchAccessCode(code string) string {
-	url := fmt.Sprintf(ACCESS_TOKEN_URL, code)
+func build_http(url string, request string) *http.Request {
+	req, err := http.NewRequest(request, url, nil)
+	if err != nil {
+		OutputError(err.Error())
+	}
 
-	request, requestErr := http.NewRequest("GET", url, nil)
-	if requestErr != nil {
-		OutputError("Error request Access Code")
+	req.Header.Set("User-Agent", "Mixcloud CLI Uploader v"+VERSION)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+
+	return req
+}
+
+func fetchMe(access_token string) mixcloud.User {
+
+	OutputMessage(term.Green + "Fetching your user data.." + term.Reset + "\n")
+
+	url := API_ME_URL + access_token
+
+	request := build_http(url, "GET")
+
+	client := http.Client{}
+	resp, doError := client.Do(request)
+	if doError != nil {
+		OutputError("Error fetching your profile data: " + doError.Error())
 		os.Exit(2)
 	}
 
-	request.Header.Add("Content-Type", "application/json")
+	var user mixcloud.User
+
+	jsonError := json.NewDecoder(resp.Body).Decode(&user)
+	resp.Body.Close()
+	if jsonError != nil {
+		OutputError("Error decoding response from API - " + jsonError.Error())
+		os.Exit(2)
+	}
+
+	return user
+
+}
+
+func fetchAccessCode(code string) string {
+	url := fmt.Sprintf(ACCESS_TOKEN_URL, code)
+
+	request := build_http(url, "GET")
 
 	client := &http.Client{}
 	resp, doError := client.Do(request)
@@ -197,7 +229,9 @@ func main() {
 	setupApp()
 	loadConfig()
 
-	var tracklist []Track
+	CURRENT_USER = fetchMe(configuration.ACCESS_TOKEN)
+
+	var tracklist []mixcloud.Track
 
 	if *configFlag == true {
 		createConfig()
@@ -212,6 +246,66 @@ func main() {
 		os.Exit(2)
 	}
 
+	b := &bytes.Buffer{}
+
+	writer := multipart.NewWriter(b)
+
+	cast_name, cast_desc, tags_arr := GetBasicInput()
+
+	BuildBasicHTTPWriter(writer, cast_name, cast_desc, tags_arr, tracklist)
+	AddPremiumToHTTPWriter(writer)
+
+	// Add MP3
+	if *fileFlag != "" {
+		loadFileToWriter(*fileFlag, "mp3", writer)
+	}
+
+	// Add cover image
+	if *coverFlag != "" {
+		loadFileToWriter(*coverFlag, "picture", writer)
+	}
+
+	writer.Close()
+
+	// bufReader := bufio.NewReader(b)
+	// for line, _, err := bufReader.ReadLine(); err != io.EOF; line, _, err = bufReader.ReadLine() {
+	// 	OutputMessage(string(line) + "\n")
+	// }
+
+	request, bar := HttpUploadRequest(b, writer)
+
+	bar.Empty = term.Red + "-" + term.Reset
+	bar.Current = term.Green + "=" + term.Reset
+	client := &http.Client{}
+	OutputMessage("\n\n")
+	STD_OUT.Flush()
+	bar.Start()
+	resp, err := client.Do(request)
+	if err != nil {
+		OutputError("Error: " + err.Error())
+		os.Exit(2)
+	}
+	bar.Finish()
+
+
+	var Response *mixcloud.Response = new(mixcloud.Response)
+
+	error := json.NewDecoder(resp.Body).Decode(&Response)
+
+	resp.Body.Close()
+	if error != nil {
+		OutputError("Error decoding response from API - " + error.Error())
+		os.Exit(2)
+	}
+
+	if handleJSONResponse(*Response) {
+		printTracklist(tracklist)
+	} else {
+		os.Exit(2)
+	}
+}
+
+func GetBasicInput() (string, string, []string) {
 	OutputMessage("Enter a name for the cloudcast: ")
 	cast_name, err := STD_IN.ReadString('\n')
 	if err != nil {
@@ -238,44 +332,18 @@ func main() {
 	}
 	tags_arr := strings.Split(cast_tags, ",")
 
-	request, bar := HttpUploadRequest(*fileFlag, *coverFlag, cast_name, cast_desc, tags_arr, tracklist)
-	bar.Empty = term.Red + "-" + term.Reset
-	bar.Current = term.Green + "=" + term.Reset
-	client := &http.Client{}
-	OutputMessage("\n\n")
-	STD_OUT.Flush()
-	bar.Start()
-	resp, err := client.Do(request)
-	if err != nil {
-		OutputError("Error: " + err.Error())
-		os.Exit(2)
-	}
-	bar.Finish()
-
-	var jsonResponse map[string]interface{}
-	error := json.NewDecoder(resp.Body).Decode(&jsonResponse)
-	resp.Body.Close()
-	if error != nil {
-		OutputError("Error decoding response from API - " + error.Error())
-		os.Exit(2)
-	}
-
-	if handleJSONResponse(jsonResponse) {
-		printTracklist(tracklist)
-	} else {
-		os.Exit(2)
-	}
+	return cast_name, cast_desc, tags_arr
 }
 
-func printTracklist(tracklist []Track) {
+func printTracklist(tracklist []mixcloud.Track) {
 	OutputMessage("Tracklist\n")
 	for i, track := range tracklist {
-		OutputMessage(fmt.Sprintf(TRACKLIST_OUTPUT_FORMAT,i+1,track.Artist,track.Song))
+		OutputMessage(fmt.Sprintf(TRACKLIST_OUTPUT_FORMAT, i+1, track.Artist, track.Song))
 	}
 }
 
-func parseVirtualDJTrackList(tracklist *string) []Track {
-	var list []Track
+func parseVirtualDJTrackList(tracklist *string) []mixcloud.Track {
+	var list []mixcloud.Track
 
 	fin, err := os.Open(*tracklist)
 	if err != nil {
@@ -291,9 +359,28 @@ func parseVirtualDJTrackList(tracklist *string) []Track {
 		data := strings.Split(string(line), " : ")
 		tracktimestr, track := data[0], data[1]
 
-		thistrack := new(Track)
+		thistrack := new(mixcloud.Track)
 
-		trackdata := strings.SplitN(string(track), " - ", 2)
+		var trackdata []string = strings.SplitN(string(track), " - ", 2)
+
+		if len(trackdata) != 2 {
+			OutputError("Error parsing track " + string(track) + " at " + tracktimestr)
+			OutputMessage("Please enter an artist for this track: ")
+			artist, err := STD_IN.ReadString('\n')
+			if err != nil {
+				OutputError("Incorrect artist entry.")
+				os.Exit(2)
+			}
+			OutputMessage("Please enter a name for this track: ")
+			track, err := STD_IN.ReadString('\n')
+			if err != nil {
+				OutputError("Incorrect track name entry.")
+				os.Exit(2)
+			}
+
+			trackdata = []string{artist, track}
+		}
+
 		thistrack.Artist = trackdata[0]
 		thistrack.Song = trackdata[1]
 
@@ -322,19 +409,20 @@ func parseVirtualDJTrackList(tracklist *string) []Track {
 	return list
 }
 
-<<<<<<< HEAD
-func handleJSONResponse(jsonResponse map[string]interface{}) bool {
-=======
-func handleJSONResponse(jsonResponse map[string]interface{}) Boolean {
->>>>>>> 5ba6bdc92303728b3523ef36c473a2168ac7843a
-	if error := jsonResponse["error"]; error != nil {
-		OutputError(error.(map[string]interface{})["message"].(string))
+func handleJSONResponse(response mixcloud.Response) bool {
+	if response.Error != nil {
+		OutputError(response.Error.Message)
+		fmt.Printf("%v",response.Details)
 		return false
-	} else {
+	} else if response.Result.Success {
 		OutputMessage(term.Green + "Sucessfully uploaded file" + term.Reset + "\n")
-		path := jsonResponse["result"].(map[string]interface{})["key"].(string)
+		path := response.Result.Key
 		OutputMessage(term.Green + "https://mixcloud.com" + path + "edit" + term.Reset + "\n")
 		return true
+	} else {
+		OutputError("Error uploading, no success")
+		fmt.Printf("%v",response)
+		return false
 	}
 }
 
@@ -368,10 +456,7 @@ func loadFileToWriter(file string, key string, writer *multipart.Writer) {
 	}
 }
 
-func HttpUploadRequest(file string, cover string, name string, desc string, tag_list []string, tracklist []Track) (*http.Request, *pb.ProgressBar) {
-	b := &bytes.Buffer{}
-	writer := multipart.NewWriter(b)
-
+func BuildBasicHTTPWriter(writer *multipart.Writer, name string, desc string, tag_list []string, tracklist []mixcloud.Track) {
 	// Add information name/description
 	writer.WriteField("name", name)
 	writer.WriteField("description", desc)
@@ -398,18 +483,99 @@ func HttpUploadRequest(file string, cover string, name string, desc string, tag_
 			writer.WriteField(duration_field_name, fmt.Sprintf("%d", total_duration))
 		}
 	}
+}
 
-	// Add MP3
-	if file != "" {
-		loadFileToWriter(file, "mp3", writer)
+func ParseDateInputToTime(dateIn string) time.Time {
+	location, err := time.LoadLocation("Local")
+
+	dateTime, err := time.ParseInLocation("02/01/2006 15:04", strings.TrimSpace(dateIn), location)
+
+	if err != nil {
+		OutputError("Incorrect date format  - " + err.Error())
+		os.Exit(2)
 	}
 
-	// Add cover image
-	if cover != "" {
-		loadFileToWriter(cover, "picture", writer)
+	return dateTime
+}
+
+func AddPremiumToHTTPWriter(writer *multipart.Writer) {
+
+	// If you're not PRO, you can't do this, get out
+	if !CURRENT_USER.IsPro {
+		return
 	}
 
-	writer.Close()
+	OutputMessage("\n" + term.Green + "Setting pro user attributes..." + term.Reset + "\n")
+
+	publish_date, disable_comments, hide_stats, unlisted := GetPremiumInput()
+
+	if publish_date != "" {
+		writer.WriteField("publish_date", publish_date)
+	}
+	if(disable_comments) {
+		writer.WriteField("disable_comments", "1")
+	}
+	if(hide_stats) {
+		writer.WriteField("hide_stats", "1")
+	}
+	if(unlisted) {
+		writer.WriteField("unlisted", "1")
+	}
+}
+
+func GetPremiumInput() (string, bool, bool, bool) {
+	disable_comments := false
+	hide_stats := false
+	unlisted := false
+	publish_date := ""
+
+	fmt.Printf("Disable comments? [y/n] ")
+	if confirm.AskForConfirmation() {
+		disable_comments = true
+	}
+
+	fmt.Printf("Hide statistics? [y/n] ")
+	if confirm.AskForConfirmation() {
+		hide_stats = true
+	}
+
+	fmt.Printf("Set to unlisted? [y/n] ")
+	if confirm.AskForConfirmation() {
+		unlisted = true
+	}
+
+	fmt.Printf("Set publish date? [y/n] ")
+	if confirm.AskForConfirmation() {
+		publish_date = PublishDateInput()
+
+	}
+
+	return publish_date, disable_comments, hide_stats, unlisted
+}
+
+func PublishDateInput() (string) {
+	current_time := time.Now().In(time.Local)
+	zonename, offset := current_time.Zone()
+
+	OutputMessage("Enter a publish date in "+zonename+" ("+fmt.Sprintf("%+d",offset/60/60)+" GMT) [DD/MM/YYYY HH:MM]: ")
+	inPublishDate, err := STD_IN.ReadString('\n')
+	if err != nil {
+		OutputError("Incorrect publish date.")
+		os.Exit(2)
+	}
+
+
+	publish_date := ParseDateInputToTime(inPublishDate)
+
+	if(!publish_date.After(current_time)) {
+		OutputError("Date "+publish_date.Format(time.RFC1123)+" is not in the future")
+		return PublishDateInput()
+	}
+
+	return publish_date.UTC().Format(time.RFC3339)
+}
+
+func HttpUploadRequest(b *bytes.Buffer, writer *multipart.Writer) (*http.Request, *pb.ProgressBar) {
 
 	url := API_URL + configuration.ACCESS_TOKEN
 
