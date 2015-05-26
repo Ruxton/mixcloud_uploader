@@ -54,13 +54,6 @@ type Configuration struct {
 	DEFAULT_TAGS string
 }
 
-type Track struct {
-	Artist   string
-	Song     string
-	Duration int
-	Cover    string
-}
-
 func showWelcomeMessage() {
 	OutputMessage(term.Green + "Mixcloud CLI Uploader v" + VERSION + term.Reset + "\n\n")
 }
@@ -239,7 +232,7 @@ func main() {
 
 	CURRENT_USER = fetchMe(configuration.ACCESS_TOKEN)
 
-	var tracklist []Track
+	var tracklist []mixcloud.Track
 
 	if *configFlag == true {
 		createConfig()
@@ -340,15 +333,15 @@ func GetBasicInput() (string, string, []string) {
 	return cast_name, cast_desc, tags_arr
 }
 
-func printTracklist(tracklist []Track) {
+func printTracklist(tracklist []mixcloud.Track) {
 	OutputMessage("Tracklist\n")
 	for i, track := range tracklist {
 		OutputMessage(fmt.Sprintf(TRACKLIST_OUTPUT_FORMAT, i+1, track.Artist, track.Song))
 	}
 }
 
-func parseVirtualDJTrackList(tracklist *string) []Track {
-	var list []Track
+func parseVirtualDJTrackList(tracklist *string) []mixcloud.Track {
+	var list []mixcloud.Track
 
 	fin, err := os.Open(*tracklist)
 	if err != nil {
@@ -458,7 +451,7 @@ func loadFileToWriter(file string, key string, writer *multipart.Writer) {
 	}
 }
 
-func BuildBasicHTTPWriter(writer *multipart.Writer, name string, desc string, tag_list []string, tracklist []Track) {
+func BuildBasicHTTPWriter(writer *multipart.Writer, name string, desc string, tag_list []string, tracklist []mixcloud.Track) {
 	// Add information name/description
 	writer.WriteField("name", name)
 	writer.WriteField("description", desc)
