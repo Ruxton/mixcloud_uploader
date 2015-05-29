@@ -10,6 +10,7 @@ import (
 	"github.com/ruxton/mixcloud/confirm"
 	"github.com/ruxton/mixcloud/mixcloud"
 	"github.com/ruxton/mixcloud/term"
+	"github.com/mattn/go-colorable"
 	"io"
 	flag "launchpad.net/gnuflag"
 	"mime/multipart"
@@ -44,8 +45,8 @@ var fileFlag = flag.String("file", "", "The mp3 file to upload to mixcloud")
 var coverFlag = flag.String("cover", "", "The image file to upload to mixcloud as the cover")
 var trackListFlag = flag.String("tracklist", "", "A file containing a VirtualDJ Tracklist for the cloudcast")
 
-var STD_OUT = bufio.NewWriter(os.Stdout)
-var STD_ERR = bufio.NewWriter(os.Stderr)
+var STD_OUT = bufio.NewWriter(colorable.NewColorableStdout())
+var STD_ERR = bufio.NewWriter(colorable.NewColorableStderr())
 var STD_IN = bufio.NewReader(os.Stdin)
 
 type Configuration struct {
