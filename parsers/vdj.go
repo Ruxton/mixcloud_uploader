@@ -1,5 +1,11 @@
 package parsers
 
+/**
+ * The VirtualDJ parser supports txt files files from VDJ's tracklists folder.
+ * Track timings are approximated due to the txt files only containing start
+ * times in HH:MM.
+ */
+
 import (
 	"bufio"
 	"fmt"

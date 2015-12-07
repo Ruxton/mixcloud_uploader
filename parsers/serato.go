@@ -1,5 +1,10 @@
 package parsers
 
+/**
+ * The Serato parser supports CSV files files from Serato's history export.
+ * Track timings are measure from start_time
+ */
+
 import (
 	"encoding/csv"
 	"fmt"
