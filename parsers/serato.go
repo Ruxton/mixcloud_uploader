@@ -2,7 +2,8 @@ package parsers
 
 /**
  * The Serato parser supports CSV files files from Serato's history export.
- * Track timings are measure from start_time
+ * Track timings are measure from start_time, if you're not using a serato mixer
+ * or internal mixer, this will be the time you load the record on the deck.
  */
 
 import (
