@@ -33,7 +33,7 @@ var configFlag = flag.Bool("config", false, "Configure the application")
 var fileFlag = flag.String("file", "", "The mp3 file to upload to mixcloud")
 var coverFlag = flag.String("cover", "", "The image file to upload to mixcloud as the cover")
 var trackListFlag = flag.String("tracklist", "", "A file containing a VirtualDJ Tracklist for the cloudcast")
-var trackListTypeFlag = flag.String("tracklist-type", "virtualdj", "The tracklsit type to parse (virtualdj,serato,traktor)")
+var trackListTypeFlag = flag.String("tracklist-type", "virtualdj", "The tracklist type to parse (virtualdj,serato,traktor)")
 
 func showWelcomeMessage() {
 	term.OutputMessage(term.Green + "Mixcloud CLI Uploader v" + versions.VERSION + term.Reset + "\n\n")
@@ -47,7 +47,7 @@ func showAboutMessage() {
 
 func createConfig() {
 	term.OutputMessage("Creating Configuration File...\n")
-	term.OutputMessage("Please visit the URL below\n\nhttps://www.mixcloud.com/oauth/authorize?client_id=z3CWHgULyawutvpcD3&redirect_uri=http://www.rhythmandpoetry.net/mixcloud_code.php\n")
+	term.OutputMessage("Please visit the URL below\n\nhttps://www.mixcloud.com/oauth/authorize?client_id="+OAUTH_CLIENT_ID+"&redirect_uri=http://www.rhythmandpoetry.net/mixcloud_code.php\n")
 
 	term.OutputMessage("Enter the provided code: ")
 	code, err := term.STD_IN.ReadString('\n')
