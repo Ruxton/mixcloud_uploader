@@ -79,18 +79,19 @@ func FetchAccessCode(code string) string {
 	return access_token
 }
 
-func AddBasicDataToHTTPWriter(configuration Configuration, writer *multipart.Writer, tracklist []Track) {
+func AddBasicDataToHTTPWriter(configuration Configuration, writer *multipart.Writer, tracklist []Track, editing bool) {
 	// Add information name/description
+	if !editing {
+		name, desc, tag_list := getBasicInput(configuration)
 
-	name, desc, tag_list := getBasicInput(configuration)
+		writer.WriteField("name", name)
+		writer.WriteField("description", desc)
 
-	writer.WriteField("name", name)
-	writer.WriteField("description", desc)
-
-	// Add tags
-	for i, tag := range tag_list {
-		field_name := fmt.Sprintf("tags-%d-tag", i)
-		writer.WriteField(field_name, tag)
+		// Add tags
+		for i, tag := range tag_list {
+			field_name := fmt.Sprintf("tags-%d-tag", i)
+			writer.WriteField(field_name, tag)
+		}
 	}
 
 	// Add tracklist
@@ -101,13 +102,18 @@ func AddBasicDataToHTTPWriter(configuration Configuration, writer *multipart.Wri
 		for i, track := range tracklist {
 			artist_field_name := fmt.Sprintf("sections-%d-artist", i)
 			song_field_name := fmt.Sprintf("sections-%d-song", i)
+			chapter_field_name := fmt.Sprintf("sections-%d-chapter", i)
 			start_time_field_name := fmt.Sprintf("sections-%d-start_time", i)
 
 			start_time += track.Duration
 
 			writer.WriteField(start_time_field_name, fmt.Sprintf("%d", start_time))
-			writer.WriteField(artist_field_name, track.Artist)
-			writer.WriteField(song_field_name, track.Song)
+			if track.Chapter != "" {
+				writer.WriteField(chapter_field_name, track.Chapter)
+			} else {
+				writer.WriteField(artist_field_name, track.Artist)
+				writer.WriteField(song_field_name, track.Song)
+			}
 		}
 	}
 }

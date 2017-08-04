@@ -11,20 +11,23 @@ import (
 	"github.com/ruxton/mixcloud/versions"
 	"github.com/ruxton/term"
 	"io"
-	flag "launchpad.net/gnuflag"
+	flag "github.com/juju/gnuflag"
 	"mime/multipart"
 	"net/http"
 	"os"
 	"os/user"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 var API_URL = "https://api.mixcloud.com/upload/?access_token="
+var EDIT_URL = "https://api.mixcloud.com/upload/%s/%s/edit/?access_token=%s"
 var CONFIG_FILE = "config.json"
 var CONFIG_FILE_PATH = ""
 
-var TRACKLIST_OUTPUT_FORMAT = "%d. %s - %s [%d]\n"
+var TRACKLIST_TRACK_OUTPUT_FORMAT = "%d. %s - %s [%d] (%s)\n"
+var TRACKLIST_CHAPTER_OUTPUT_FORMAT = "%d. %s [%d] (%s)\n"
 
 var configuration = mixcloud.Configuration{}
 
@@ -33,7 +36,8 @@ var configFlag = flag.Bool("config", false, "Configure the application")
 var fileFlag = flag.String("file", "", "The mp3 file to upload to mixcloud")
 var coverFlag = flag.String("cover", "", "The image file to upload to mixcloud as the cover")
 var trackListFlag = flag.String("tracklist", "", "A file containing a VirtualDJ Tracklist for the cloudcast")
-var trackListTypeFlag = flag.String("tracklist-type", "virtualdj", "The tracklist type to parse (virtualdj,serato,traktor)")
+var trackListTypeFlag = flag.String("tracklist-type", "virtualdj", "The tracklist type to parse (virtualdj,serato,traktor,reaper,cue)")
+var editFlag = flag.String("edit", "", "The id of the track to edit")
 
 func showWelcomeMessage() {
 	term.OutputMessage(term.Green + "Mixcloud CLI Uploader v" + versions.VERSION + term.Reset + "\n\n")
@@ -47,7 +51,7 @@ func showAboutMessage() {
 
 func createConfig() {
 	term.OutputMessage("Creating Configuration File...\n")
-	term.OutputMessage("Please visit the URL below\n\nhttps://www.mixcloud.com/oauth/authorize?client_id="+OAUTH_CLIENT_ID+"&redirect_uri=http://www.rhythmandpoetry.net/mixcloud_code.php\n")
+	term.OutputMessage("Please visit the URL below\n\nhttps://www.mixcloud.com/oauth/authorize?client_id="+mixcloud.OAUTH_CLIENT_ID+"&redirect_uri=http://www.rhythmandpoetry.net/mixcloud_code.php\n")
 
 	term.OutputMessage("Enter the provided code: ")
 	code, err := term.STD_IN.ReadString('\n')
@@ -162,6 +166,8 @@ func main() {
 			tracklist = parsers.ParseVirtualDJTrackList(trackListFlag)
 		} else if *trackListTypeFlag == "serato" {
 			tracklist = parsers.ParseSeratoTrackList(trackListFlag)
+    } else if *trackListTypeFlag == "reaper" {
+      tracklist = parsers.ParseReaperMarkerList(trackListFlag)
 		} else if *trackListTypeFlag == "traktor" {
 			term.OutputError("Traktor tracklists are currently not supported.\n Exiting.")
 			os.Exit(2)
@@ -170,7 +176,67 @@ func main() {
 
 	printTracklist(tracklist)
 
-	if *fileFlag == "" {
+  if *editFlag != "" {
+    editMix(*editFlag,*coverFlag,tracklist)
+  } else {
+    uploadNewMix(*fileFlag,*coverFlag,tracklist)
+  }
+
+}
+
+func editMix(mix string, cover string, tracklist []mixcloud.Track) {
+
+    if(len(tracklist) == 0) {
+      term.OutputError("You must provide a tracklist when editing.")
+      os.Exit(2)
+    }
+
+    b := &bytes.Buffer{}
+  	writer := multipart.NewWriter(b)
+
+    mixcloud.AddBasicDataToHTTPWriter(configuration, writer, tracklist, true)
+    if cover != "" {
+  		loadFileToWriter(cover, "picture", writer)
+  	}
+
+    url := fmt.Sprintf(EDIT_URL,mixcloud.CURRENT_USER.Username,mix,configuration.ACCESS_TOKEN)
+
+    term.OutputMessage(url+"\n")
+
+    request,bar := HttpEditRequest(url,b, writer)
+    bar.Empty = term.Red + "-" + term.Reset
+  	bar.Current = term.Green + "=" + term.Reset
+  	client := &http.Client{}
+  	term.OutputMessage("\n\n")
+  	term.STD_OUT.Flush()
+
+  	// Start uploading
+  	bar.Start()
+  	resp, err := client.Do(request)
+  	if err != nil {
+  		term.OutputError("Error: " + err.Error())
+  		os.Exit(2)
+  	}
+  	bar.Finish()
+
+    var Response *mixcloud.Response = new(mixcloud.Response)
+
+    error := json.NewDecoder(resp.Body).Decode(&Response)
+    resp.Body.Close()
+    if error != nil {
+      term.OutputError("Error decoding response from API - " + error.Error())
+      os.Exit(2)
+    }
+
+    if handleJSONResponse(*Response) {
+      printTracklist(tracklist)
+    } else {
+      os.Exit(2)
+    }
+}
+
+func uploadNewMix(file string, cover string, tracklist []mixcloud.Track) {
+  if file == "" {
 		term.OutputError("You must pass a file to upload, use --file or see --help.\n Exiting.")
 		os.Exit(2)
 	}
@@ -179,16 +245,16 @@ func main() {
 	writer := multipart.NewWriter(b)
 
 	// Collect user input
-	mixcloud.AddBasicDataToHTTPWriter(configuration, writer, tracklist)
+	mixcloud.AddBasicDataToHTTPWriter(configuration, writer, tracklist, false)
 	mixcloud.AddPremiumDataToHTTPWriter(writer)
 
 	// Add MP3
-	if *fileFlag != "" {
-		loadFileToWriter(*fileFlag, "mp3", writer)
+	if file != "" {
+		loadFileToWriter(file, "mp3", writer)
 	}
 	// Add cover image
-	if *coverFlag != "" {
-		loadFileToWriter(*coverFlag, "picture", writer)
+	if cover != "" {
+		loadFileToWriter(cover, "picture", writer)
 	}
 	writer.Close()
 
@@ -227,8 +293,19 @@ func main() {
 
 func printTracklist(tracklist []mixcloud.Track) {
 	term.OutputMessage("Tracklist\n")
+	total_start_time:=0
 	for i, track := range tracklist {
-		term.OutputMessage(fmt.Sprintf(TRACKLIST_OUTPUT_FORMAT, i+1, track.Artist, track.Song, track.Duration))
+    total_start_time = total_start_time+track.Duration
+    message := ""
+
+    if(track.Chapter != "") {
+      message = fmt.Sprintf(TRACKLIST_CHAPTER_OUTPUT_FORMAT, i+1, track.Chapter, track.Duration, (time.Duration(total_start_time)*time.Second).String() )
+    } else {
+      message = fmt.Sprintf(TRACKLIST_TRACK_OUTPUT_FORMAT, i+1, track.Artist, track.Song, track.Duration, (time.Duration(total_start_time)*time.Second).String() )
+    }
+
+    term.OutputMessage(message)
+
 	}
 }
 
@@ -267,6 +344,22 @@ func loadFileToWriter(file string, key string, writer *multipart.Writer) {
 		term.OutputError("Error opening file " + file + " to buffer\n")
 		os.Exit(2)
 	}
+}
+
+func HttpEditRequest(url string,b *bytes.Buffer, writer *multipart.Writer) (*http.Request, *pb.ProgressBar) {
+
+	var bar = pb.New(b.Len()).SetUnits(pb.U_BYTES)
+	reader := bar.NewProxyReader(b)
+
+	request, err := http.NewRequest("POST", url, reader)
+	if err != nil {
+		term.OutputError("Error building request")
+		os.Exit(2)
+	}
+
+	request.Header.Add("Content-Type", writer.FormDataContentType())
+
+	return request, bar
 }
 
 func HttpUploadRequest(b *bytes.Buffer, writer *multipart.Writer) (*http.Request, *pb.ProgressBar) {
